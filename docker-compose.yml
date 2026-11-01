@@ -1,0 +1,101 @@
+# Receita do ambiente local: PostgreSQL + Airflow.
+# Para ligar tudo:  docker compose up -d --build
+
+# bloco reaproveitado pelos 3 serviços do Airflow (evita repetir)
+x-airflow-comum: &airflow-comum
+  build: .
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    # banco onde o Airflow guarda o histórico (note: host "postgres" e porta 5432 DENTRO do Docker)
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"   # sem as DAGs de exemplo
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+    PGE_DADOS_DIR: /opt/airflow/data         # pasta dos arquivos trocados entre as etapas
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
+    - airflow_logs:/opt/airflow/logs
+    - airflow_dados:/opt/airflow/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: pge_postgres
+    environment:
+      # os valores vêm do arquivo .env (assim a senha não fica escrita no código)
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # porta 5433 do seu computador -> porta 5432 do container
+      # (5433 evita conflito com o Postgres do nosso estudo anterior)
+      - "5433:5432"
+    volumes:
+      # guarda os dados do banco, mesmo se o container for desligado
+      - pgdata:/var/lib/postgresql/data
+      # tudo o que estiver na pasta sql roda sozinho na primeira vez
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Prepara o Airflow uma vez e termina: cria as tabelas dele, o usuário,
+  # a Connection com o banco e as Variables. Pode rodar de novo sem estragar nada.
+  airflow-init:
+    <<: *airflow-comum
+    container_name: pge_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+        airflow db migrate
+        airflow users create --username "$${AIRFLOW_ADMIN_USER}" --password "$${AIRFLOW_ADMIN_PASSWORD}" \
+          --firstname Admin --lastname PGE --role Admin --email admin@example.com || true
+        airflow connections get pge_postgres > /dev/null 2>&1 || airflow connections add pge_postgres \
+          --conn-type postgres --conn-host postgres --conn-port 5432 \
+          --conn-login "${POSTGRES_USER}" --conn-password "${POSTGRES_PASSWORD}" --conn-schema "${POSTGRES_DB}"
+        airflow variables get pge_max_paginas > /dev/null 2>&1 || airflow variables set pge_max_paginas 3
+        airflow variables get pge_tamanho_pagina > /dev/null 2>&1 || airflow variables set pge_tamanho_pagina 10
+    environment:
+      <<: *airflow-env
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+    restart: "no"
+
+  # A tela do Airflow: http://localhost:8080
+  airflow-webserver:
+    <<: *airflow-comum
+    container_name: pge_airflow_web
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # O "relógio" que dispara as DAGs e executa as etapas
+  airflow-scheduler:
+    <<: *airflow-comum
+    container_name: pge_airflow_scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  airflow_logs:
+  airflow_dados:

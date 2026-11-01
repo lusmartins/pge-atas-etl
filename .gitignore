@@ -1,0 +1,20 @@
+# Segredos: o .env real nunca sobe para o GitHub (o .env.example sobe)
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Arquivos gerados pelo pipeline e logs
+dados/
+logs/
+*.log
+
+# Editores e sistema
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
