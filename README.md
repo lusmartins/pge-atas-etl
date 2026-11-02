@@ -179,6 +179,21 @@ Os testes com banco real são pulados se o PostgreSQL não estiver ligado (`dock
 
 ---
 
+## Problemas comuns
+
+| Sintoma | Causa provável | O que fazer |
+|---|---|---|
+| `Conflict. The container name "/pge_postgres" is already in use` | Já existe outro ambiente deste projeto ligado (os containers têm nomes fixos) | Na outra pasta, rode `docker compose down`; depois suba de novo |
+| `port is already allocated` (8080 ou 5433) | Outro programa usa a porta | Desligue o outro programa ou ambiente que usa a 8080 (Airflow) ou a 5433 (Postgres) |
+| A tela do Airflow não abre logo após o `up` | O Airflow leva 1 a 2 minutos para ficar pronto | Aguarde o `pge_airflow_web` ficar `healthy` em `docker compose ps -a` |
+| A DAG não aparece, ou mostra faixa vermelha de erro | Erro ao ler o arquivo da DAG | Veja os detalhes na faixa vermelha ou em `docker compose logs airflow-scheduler` |
+| Uma etapa fica vermelha | Falha na extração ou na gravação | Abra a etapa → **Logs**, corrija a causa e use **Clear** na etapa |
+| Tabelas ausentes depois de mudar um arquivo de `sql/` | Os scripts só rodam quando o banco nasce do zero | `docker compose down -v` e suba de novo |
+| Os testes com banco real aparecem como `skipped` | O PostgreSQL não está ligado | `docker compose up -d postgres` e rode os testes de novo |
+| O resultado de uma consulta "trava" na tela, mostrando `~` e `(END)` | O `psql` abriu o modo de leitura (paginador) | Aperte `q`. Com `-P pager=off` ele não abre |
+
+---
+
 ## Limitações e suposições
 
 Este projeto assume com clareza o que **não** faz e o que **observou**:
