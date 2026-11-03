@@ -112,9 +112,11 @@ def banco_teste(monkeypatch):
         pytest.skip("PostgreSQL não está acessível (suba com: docker compose up -d)")
 
     admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(nome)))
+    # só o script das tabelas do projeto: o 000_airflow_db.sql cria o banco do Airflow,
+    # não tem relação com este teste e não pode rodar dentro de uma transação
+    tabelas = RAIZ / "sql" / "001_create_tables.sql"
     with psycopg.connect(**_parametros(nome)) as conexao:
-        for arquivo in sorted((RAIZ / "sql").glob("*.sql")):
-            conexao.execute(arquivo.read_text(encoding="utf-8"))
+        conexao.execute(tabelas.read_text(encoding="utf-8"))
 
     monkeypatch.setenv("POSTGRES_DB", nome)  # o load.conectar() vai usar o banco temporário
     yield nome
